@@ -8,7 +8,7 @@ import plotly.express as px
 # 1. KONFIGURASI HALAMAN & CSS RESPONSIVE MOBILE
 # ==========================================
 st.set_page_config(
-    page_title="thohir saham - Institutional Screener",
+    page_title="thohir saham - Ultimate Institutional Screener",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -83,8 +83,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 📊 [thohir saham](https://gemini.google.com/notebook/48f4b0c5-0333-4d6b-8d57-dce2d75bdadb)")
-st.markdown("Dashboard analitik institusi tingkat lanjut dengan **Radar Arus Sektor**, **OBV Riil**, **Klasifikasi Bandar & Nilai Rupiah**, serta **Filter Anti-Terjebak**.")
+st.title("📊 📊 thohir saham")
+st.markdown("Dashboard analitik institusi tingkat lanjut: **Radar Sektor**, **OBV Riil**, **VWAP Institusional**, **Kelas Bandar & Nilai Rupiah**, serta **Filter Anti-Terjebak**.")
 
 # ==========================================
 # 2. PEMETAAN SEKTOR & DATA PASAR
@@ -104,7 +104,7 @@ SECTOR_MAPPING = {
 }
 
 @st.cache_data(ttl=3600)
-def fetch_sector_flow_data(sector_map):
+def fetch_institutional_screener_data(sector_map):
     data_list = []
     try:
         benchmark = yf.download("^JKSE", period="1y", interval="1d", progress=False)['Close']
@@ -116,20 +116,15 @@ def fetch_sector_flow_data(sector_map):
 
     for ticker, sector in sector_map.items():
         try:
-            df = yf.download(ticker, period="3mo", interval="1d", progress=False)
+            t_obj = yf.Ticker(ticker)
+            df = t_obj.history(period="3mo")
             if df.empty or len(df) < 22:
                 continue
                 
-            if isinstance(df.columns, pd.MultiIndex):
-                close = df['Close'].iloc[:, 0]
-                high = df['High'].iloc[:, 0]
-                low = df['Low'].iloc[:, 0]
-                volume = df['Volume'].iloc[:, 0]
-            else:
-                close = df['Close']
-                high = df['High']
-                low = df['Low']
-                volume = df['Volume']
+            close = df['Close']
+            high = df['High']
+            low = df['Low']
+            volume = df['Volume']
                 
             current_price = float(close.iloc[-1])
             prev_price = float(close.iloc[-2])
@@ -170,18 +165,32 @@ def fetch_sector_flow_data(sector_map):
             obv_plus_val = round(latest_obv / vol_rata2, 2) if vol_rata2 != 0 else 1.0
 
             if change_pct < 0 and curr_vol > (vol_rata2 * 1.5):
-                obv_status = f"🔴 DISTRIBUSI (Vol Naik, Harga Turun) [OBV: {obv_plus_val}]"
+                obv_status = f"🔴 DISTRIBUSI [OBV: {obv_plus_val}]"
             elif obv_plus_val >= 1.0:
-                obv_status = f"🟢 AKUMULASI (BUY) [OBV Plus (+): {obv_plus_val}]"
+                obv_status = f"🟢 AKUMULASI [OBV+: {obv_plus_val}]"
             else:
-                obv_status = f"🔴 DISTRIBUSI (SELL) [OBV Minus (-): {obv_plus_val}]"
+                obv_status = f"🔴 DISTRIBUSI [OBV-: {obv_plus_val}]"
+
+            # ==========================================
+            # PERHITUNGAN VWAP (Volume Weighted Average Price)
+            # ==========================================
+            typical_price = (high + low + close) / 2 # atau (high + low + close) / 3
+            vwap_series = (typical_price * volume).rolling(window=20).sum() / volume.rolling(window=20).sum()
+            current_vwap = float(vwap_series.iloc[-1]) if not vwap_series.empty and not pd.isna(vwap_series.iloc[-1]) else current_price
+
+            if current_price <= current_vwap * 1.015 and current_price >= current_vwap * 0.985:
+                vwap_status = f"🎯 VWAP Aligned (Rp {current_vwap:,.0f})"
+            elif current_price < current_vwap * 0.985:
+                vwap_status = f"📉 Di Bawah VWAP (Rp {current_vwap:,.0f})"
+            else:
+                vwap_status = f"📈 Di Atas VWAP (Rp {current_vwap:,.0f})"
 
             # Estimasi Nilai Rupiah Dana Institusi
-            estimated_paus_value_idr = (curr_vol * current_price)
-            if estimated_paus_value_idr >= 1e9:
-                val_str = f"Rp {estimated_paus_value_idr / 1e9:,.1f} M"
+            estimated_value_idr = (curr_vol * current_price)
+            if estimated_value_idr >= 1e9:
+                val_str = f"Rp {estimated_value_idr / 1e9:,.1f} M"
             else:
-                val_str = f"Rp {estimated_paus_value_idr / 1e6:,.1f} Jt"
+                val_str = f"Rp {estimated_value_idr / 1e6:,.1f} Jt"
 
             ma20 = close.rolling(window=20).mean()
             paus_min = round(float(ma20.iloc[-1]) * 0.97, 0) if not ma20.empty and not pd.isna(ma20.iloc[-1]) else current_price * 0.97
@@ -214,9 +223,23 @@ def fetch_sector_flow_data(sector_map):
             if current_price <= curr_lower * 1.01:
                 bb_status = "🎯 Support Bollinger (Aman Masuk)"
             elif current_price >= curr_upper * 0.99:
-                bb_status = "⚠️ Rawan Pucuk (Bollinger Atas)"
+                bb_status = "⚠️ Rawan Pucuk"
             else:
                 bb_status = "⚖️ Zona Normal"
+
+            # Kalkulator RRR & Stop Loss Otomatis
+            stop_loss = round(current_price * 0.965, 0)
+            take_profit = round(current_price * 1.07, 0)
+            risk = current_price - stop_loss
+            reward = take_profit - current_price
+            rrr = round(reward / risk, 2) if risk > 0 else 1.0
+            rrr_display = f"{rrr}x (Ideal ≥ 2x)" if rrr >= 2.0 else f"{rrr}x (Rendah)"
+
+            # Filter Fundamental Otomatis
+            info = t_obj.info
+            roe_val = info.get('returnOnEquity', 0.15) * 100
+            der_val = info.get('debtToEquity', 50) / 100
+            fund_status = "✅ Lolos Tier 1" if roe_val >= 10 and der_val <= 1.2 else "⚠️ Periksa Fundamental"
 
             # Alpha & Beta Riil
             stock_returns = close.pct_change().dropna()
@@ -239,10 +262,15 @@ def fetch_sector_flow_data(sector_map):
                 "Sektor": sector,
                 "Arus Uang": money_flow,
                 "Status OBV Riil": obv_status,
+                "Status VWAP": vwap_status,
                 "Harga": round(current_price, 2),
                 "Change (%)": round(change_pct, 2),
                 "Kelas Bandar": kelas_bandar,
                 "Kolom Paus (Akumulasi & Nilai)": paus_zone,
+                "Stop Loss": f"Rp {stop_loss:,.0f}",
+                "Take Profit": f"Rp {take_profit:,.0f}",
+                "Rasio RRR": rrr_display,
+                "Status Fundamental": fund_status,
                 "Alpha (%)": round(alpha, 2),
                 "Beta": round(beta, 2),
                 "Sinyal Teknikal": stoch_signal,
@@ -264,8 +292,8 @@ def fetch_sector_flow_data(sector_map):
     return df_result
 
 # Load Data Market
-with st.spinner("Memuat data pasar real-time & kalkulasi institusi..."):
-    df_screener = fetch_sector_flow_data(SECTOR_MAPPING)
+with st.spinner("Memuat data pasar real-time & kalkulasi VWAP institusi..."):
+    df_screener = fetch_institutional_screener_data(SECTOR_MAPPING)
 
 if df_screener.empty:
     st.warning("Gagal memuat data pasar.")
@@ -317,7 +345,7 @@ else:
     # ==========================================
     # TABEL UTAMA EMITEN (DENGAN PEMBEKUAN KOLOM)
     # ==========================================
-    st.subheader("📊 Daftar Emiten, Arus Uang & Analisis OBV Riil")
+    st.subheader("📊 Daftar Emiten, Arus Sektor, OBV Riil, VWAP & RRR")
     filter_sector = st.selectbox("Filter Berdasarkan Sektor IDX:", ["Semua Sektor"] + list(df_screener['Sektor'].unique()))
 
     df_filtered = df_screener.copy()
@@ -338,17 +366,19 @@ else:
         }
     )
 
-    # Tabel Rekomendasi Area Jaring Support
-    st.markdown("### 🎯 Rekomendasi Area Masuk (Jaring Support)")
+    # Tabel Rekomendasi Area Jaring Support & Manajemen Risiko
+    st.markdown("### 🎯 Rekomendasi Area Masuk & Kalkulator Manajemen Risiko")
     jaring_data = []
     for _, row in df_filtered.head(8).iterrows():
         jaring_data.append({
             "Kode Saham": row['Kode Saham'],
             "Sektor": row['Sektor'],
-            "Arus Uang": row['Arus Uang'],
             "Harga Sekarang": row['Harga'],
-            "Status OBV Riil": row['Status OBV Riil'],
-            "Kelas Bandar": row['Kelas Bandar'],
+            "Status VWAP": row['Status VWAP'],
+            "Stop Loss": row['Stop Loss'],
+            "Take Profit": row['Take Profit'],
+            "Rasio RRR": row['Rasio RRR'],
+            "Status Fundamental": row['Status Fundamental'],
             "Kolom Paus (Akumulasi & Nilai)": row['Kolom Paus (Akumulasi & Nilai)'],
             "Sinyal": row['Sinyal Teknikal'],
             "Filter Bollinger": row['Status Bollinger']
