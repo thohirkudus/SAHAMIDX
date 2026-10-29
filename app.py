@@ -83,8 +83,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 thohir saham - Institutional IDX Screener")
-st.markdown("Dashboard analitik tingkat institusi untuk memantau **Arus Uang Sektor**, **Sinyal Teknikal Beli**, serta filter anti-terjebak (*Bollinger & MACD*).")
+st.title("📊 📊 [thohir saham](https://gemini.google.com/notebook/48f4b0c5-0333-4d6b-8d57-dce2d75bdadb) - Institutional IDX Screener")
+st.markdown("Dashboard analitik tingkat institusi untuk memantau **Arus Uang Sektor**, **Sinyal Teknikal Beli**, **Klasifikasi Kelas Bandar (Paus/Hiu)**, serta filter anti-terjebak.")
 
 # ==========================================
 # 2. PEMETAAN SEKTOR & DATA PASAR
@@ -136,9 +136,32 @@ def fetch_sector_flow_data(sector_map):
             change_pct = ((current_price - prev_price) / prev_price) * 100
             
             curr_vol = float(volume.iloc[-1])
-            vol_ma20 = float(volume.rolling(20).mean().iloc[-1])
+            vol_rata2 = float(volume.rolling(200).mean().iloc[-1]) if len(volume) >= 200 else float(volume.mean())
+            if vol_rata2 == 0:
+                vol_rata2 = 1.0
 
-            # Arus Uang
+            # Rasio Volume terhadap Rata-rata (Logika Google Sheets Anda)
+            rasio_vol = curr_vol / vol_rata2
+            
+            # Klasifikasi Kelas Bandar
+            if rasio_vol >= 5:
+                kelas_bandar = "🐳 PAUS (>5x)"
+            elif rasio_vol >= 3:
+                kelas_bandar = "🦈 HIU (>3x)"
+            elif rasio_vol >= 1.5:
+                kelas_bandar = "🐟 LOKAL (>1.5x)"
+            else:
+                kelas_bandar = "⏳ NORMAL"
+
+            # Estimasi Nilai Rupiah Dana Paus / Volume Maksimal Harian
+            estimated_paus_value_idr = (curr_vol * current_price)
+            if estimated_paus_value_idr >= 1e9:
+                val_str = f"Rp {estimated_paus_value_idr / 1e9:,.1f} M"
+            else:
+                val_str = f"Rp {estimated_paus_value_idr / 1e6:,.1f} Jt"
+
+            # Arus Uang Dasar
+            vol_ma20 = float(volume.rolling(20).mean().iloc[-1])
             if change_pct > 0 and curr_vol > vol_ma20:
                 money_flow = "🟢 INFLOW"
             elif change_pct < 0 and curr_vol > vol_ma20:
@@ -179,21 +202,10 @@ def fetch_sector_flow_data(sector_map):
             else:
                 bb_status = "⚖️ Zona Normal"
 
-            # MACD Histogram (Konfirmasi Momentum)
-            ema12 = close.ewm(span=12, adjust=False).mean()
-            ema26 = close.ewm(span=26, adjust=False).mean()
-            macd_line = ema12 - ema26
-            signal_line = macd_line.ewm(span=9, adjust=False).mean()
-            macd_hist = macd_line - signal_line
-            curr_hist = float(macd_hist.iloc[-1])
-            prev_hist = float(macd_hist.iloc[-2])
-
-            if prev_hist < 0 and curr_hist > 0:
-                macd_status = "🔥 MACD Bullish Cross"
-            elif curr_hist > prev_hist:
-                macd_status = "📈 Momentum Menguat"
-            else:
-                macd_status = "📉 Momentum Melemah"
+            # Zona Support Paus
+            paus_min = round(float(ma20.iloc[-1]) * 0.97, 0)
+            paus_max = round(float(ma20.iloc[-1]) * 1.005, 0)
+            paus_zone = f"Rp {paus_min:,.0f} – Rp {paus_max:,.0f} ({val_str})"
 
             # Alpha & Beta
             stock_returns = close.pct_change().dropna()
@@ -216,12 +228,12 @@ def fetch_sector_flow_data(sector_map):
                 "Sektor": sector,
                 "Arus Uang": money_flow,
                 "Harga": round(current_price, 2),
-                "Change (%)": round(change_pct, 2),
+                "Kelas Bandar": kelas_bandar,
+                "Kolom Paus (Akumulasi & Nilai)": paus_zone,
                 "Alpha (%)": round(alpha, 2),
                 "Beta": round(beta, 2),
                 "Sinyal Teknikal": stoch_signal,
-                "Status Bollinger": bb_status,
-                "Momentum MACD": macd_status
+                "Status Bollinger": bb_status
             })
         except Exception:
             continue
@@ -267,28 +279,24 @@ else:
     for sector_name, group in df_screener.groupby("Sektor"):
         inflow_count = len(group[group['Arus Uang'].str.contains("INFLOW")])
         outflow_count = len(group[group['Arus Uang'].str.contains("OUTFLOW")])
-        avg_change = group['Change (%)'].mean()
+        avg_change = group['Change (%)'].mean() if 'Change (%)' in group.columns else 0.0
         status = "🟢 INFLOW" if inflow_count >= outflow_count else "🔴 OUTFLOW"
             
         sector_flow_summary.append({
             "Sektor IDX": sector_name,
             "Status Arus Uang": status,
-            "Rata-Rata Perubahan (%)": round(avg_change, 2),
             "Jumlah Emiten": len(group)
         })
         
     df_sector_flow = pd.DataFrame(sector_flow_summary)
-    df_sector_flow['Is_Inflow'] = df_sector_flow['Status Arus Uang'].str.contains("🟢 INFLOW").astype(int)
-    df_sector_flow = df_sector_flow.sort_values(by=["Is_Inflow", "Rata-Rata Perubahan (%)"], ascending=[False, False]).drop(columns=['Is_Inflow']).reset_index(drop=True)
-    
     flow_badges_str = "  |  ".join([f"**{row['Sektor IDX']}** {row['Status Arus Uang']}" for _, row in df_sector_flow.iterrows()])
     st.markdown(f"### `{flow_badges_str}`")
     st.dataframe(df_sector_flow, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
-    # Tabel Detail Saham & Area Jaring
-    st.subheader("📊 Daftar Emiten & Filter Anti-Terjebak")
+    # Tabel Detail Saham dengan Kelas Bandar & Kolom Paus
+    st.subheader("📊 Daftar Emiten, Kelas Bandar & Nilai Akumulasi Paus")
     filter_sector = st.selectbox("Filter Berdasarkan Sektor IDX:", ["Semua Sektor"] + list(df_screener['Sektor'].unique()))
 
     df_filtered = df_screener.copy()
@@ -301,14 +309,12 @@ else:
     st.markdown("### 🎯 Rekomendasi Area Masuk (Jaring Support)")
     jaring_data = []
     for _, row in df_filtered.head(8).iterrows():
-        p = row['Harga']
-        jaring_atas = round(p * 0.985, 0)
-        jaring_bawah = round(p * 0.965, 0)
         jaring_data.append({
             "Kode Saham": row['Kode Saham'],
             "Sektor": row['Sektor'],
-            "Harga Sekarang": p,
-            "Area Jaring Support": f"Rp {jaring_bawah:,.0f} – Rp {jaring_atas:,.0f}",
+            "Harga Sekarang": row['Harga'],
+            "Kelas Bandar": row['Kelas Bandar'],
+            "Kolom Paus (Akumulasi & Nilai)": row['Kolom Paus (Akumulasi & Nilai)'],
             "Sinyal": row['Sinyal Teknikal'],
             "Filter Bollinger": row['Status Bollinger']
         })
@@ -318,7 +324,7 @@ else:
 
     # Grafik Sebaran Risiko (Responsif)
     st.subheader("📈 Scatter Plot Analisis Risiko & Imbal Hasil")
-    df_screener['Marker_Size'] = df_screener['Change (%)'].abs() + 5
+    df_screener['Marker_Size'] = 10
 
     fig = px.scatter(
         df_screener,
