@@ -83,8 +83,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 📊 thohir saham")
-st.markdown("Dashboard analitik institusi tingkat lanjut: **Radar Sektor**, **OBV Riil**, **VWAP Institusional**, **Kelas Bandar & Nilai Rupiah**, serta **Filter Anti-Terjebak**.")
+st.title("📊 📊 [thohir saham](https://gemini.google.com/notebook/48f4b0c5-0333-4d6b-8d57-dce2d75bdadb)")
+st.markdown("Dashboard analitik institusi tingkat lanjut: **Radar Sektor**, **OBV Riil**, **VWAP**, **Kelas Bandar & Nilai Rupiah**, serta **Anti-Terjebak**.")
 
 # ==========================================
 # 2. PEMETAAN SEKTOR & DATA PASAR
@@ -107,28 +107,38 @@ SECTOR_MAPPING = {
 def fetch_institutional_screener_data(sector_map):
     data_list = []
     try:
-        benchmark = yf.download("^JKSE", period="1y", interval="1d", progress=False)['Close']
-        if isinstance(benchmark, pd.DataFrame):
-            benchmark = benchmark.iloc[:, 0]
-        bm_returns = benchmark.pct_change().dropna()
+        benchmark_df = yf.download("^JKSE", period="6mo", interval="1d", progress=False)
+        if not benchmark_df.empty:
+            if isinstance(benchmark_df.columns, pd.MultiIndex):
+                benchmark = benchmark_df['Close'].iloc[:, 0]
+            else:
+                benchmark = benchmark_df['Close']
+            bm_returns = benchmark.pct_change().dropna()
+        else:
+            bm_returns = pd.Series()
     except Exception:
         bm_returns = pd.Series()
 
     for ticker, sector in sector_map.items():
         try:
-            t_obj = yf.Ticker(ticker)
-            df = t_obj.history(period="3mo")
+            df = yf.download(ticker, period="3mo", interval="1d", progress=False)
             if df.empty or len(df) < 22:
                 continue
                 
-            close = df['Close']
-            high = df['High']
-            low = df['Low']
-            volume = df['Volume']
+            if isinstance(df.columns, pd.MultiIndex):
+                close = df['Close'].iloc[:, 0]
+                high = df['High'].iloc[:, 0]
+                low = df['Low'].iloc[:, 0]
+                volume = df['Volume'].iloc[:, 0]
+            else:
+                close = df['Close']
+                high = df['High']
+                low = df['Low']
+                volume = df['Volume']
                 
             current_price = float(close.iloc[-1])
-            prev_price = float(close.iloc[-2])
-            change_pct = ((current_price - prev_price) / prev_price) * 100
+            prev_price = float(close.iloc[-2]) if len(close) > 1 else current_price
+            change_pct = ((current_price - prev_price) / prev_price) * 100 if prev_price != 0 else 0.0
             
             curr_vol = float(volume.iloc[-1])
             vol_rata2 = float(volume.mean())
@@ -171,10 +181,8 @@ def fetch_institutional_screener_data(sector_map):
             else:
                 obv_status = f"🔴 DISTRIBUSI [OBV-: {obv_plus_val}]"
 
-            # ==========================================
-            # PERHITUNGAN VWAP (Volume Weighted Average Price)
-            # ==========================================
-            typical_price = (high + low + close) / 2 # atau (high + low + close) / 3
+            # Perhitungan VWAP (Volume Weighted Average Price)
+            typical_price = (high + low + close) / 3
             vwap_series = (typical_price * volume).rolling(window=20).sum() / volume.rolling(window=20).sum()
             current_vwap = float(vwap_series.iloc[-1]) if not vwap_series.empty and not pd.isna(vwap_series.iloc[-1]) else current_price
 
@@ -235,12 +243,6 @@ def fetch_institutional_screener_data(sector_map):
             rrr = round(reward / risk, 2) if risk > 0 else 1.0
             rrr_display = f"{rrr}x (Ideal ≥ 2x)" if rrr >= 2.0 else f"{rrr}x (Rendah)"
 
-            # Filter Fundamental Otomatis
-            info = t_obj.info
-            roe_val = info.get('returnOnEquity', 0.15) * 100
-            der_val = info.get('debtToEquity', 50) / 100
-            fund_status = "✅ Lolos Tier 1" if roe_val >= 10 and der_val <= 1.2 else "⚠️ Periksa Fundamental"
-
             # Alpha & Beta Riil
             stock_returns = close.pct_change().dropna()
             if not bm_returns.empty:
@@ -270,7 +272,6 @@ def fetch_institutional_screener_data(sector_map):
                 "Stop Loss": f"Rp {stop_loss:,.0f}",
                 "Take Profit": f"Rp {take_profit:,.0f}",
                 "Rasio RRR": rrr_display,
-                "Status Fundamental": fund_status,
                 "Alpha (%)": round(alpha, 2),
                 "Beta": round(beta, 2),
                 "Sinyal Teknikal": stoch_signal,
@@ -292,11 +293,11 @@ def fetch_institutional_screener_data(sector_map):
     return df_result
 
 # Load Data Market
-with st.spinner("Memuat data pasar real-time & kalkulasi VWAP institusi..."):
+with st.spinner("Memuat data pasar real-time & kalkulasi institusi terlengkap..."):
     df_screener = fetch_institutional_screener_data(SECTOR_MAPPING)
 
 if df_screener.empty:
-    st.warning("Gagal memuat data pasar.")
+    st.warning("Gagal memuat data pasar. Pastikan koneksi internet stabil atau coba *reboot* aplikasi.")
 else:
     # Kartu Ringkasan Atas
     col1, col2, col3, col4 = st.columns(4)
@@ -378,7 +379,6 @@ else:
             "Stop Loss": row['Stop Loss'],
             "Take Profit": row['Take Profit'],
             "Rasio RRR": row['Rasio RRR'],
-            "Status Fundamental": row['Status Fundamental'],
             "Kolom Paus (Akumulasi & Nilai)": row['Kolom Paus (Akumulasi & Nilai)'],
             "Sinyal": row['Sinyal Teknikal'],
             "Filter Bollinger": row['Status Bollinger']
