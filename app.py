@@ -83,7 +83,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 📊 📊 [thohir saham](https://gemini.google.com/notebook/48f4b0c5-0333-4d6b-8d57-dce2d75bdadb)")
+st.title("📊 📊 📊 thohir saham")
 st.markdown("Dashboard analitik institusi dengan **On-Balance Volume (OBV)**, **Klasifikasi Bandar**, dan filter anti-terjebak.")
 
 # ==========================================
@@ -151,19 +151,21 @@ def fetch_sector_flow_data(sector_map):
             else:
                 kelas_bandar = "⏳ NORMAL"
 
-            # Perhitungan OBV (On-Balance Volume) ala Formula Google Sheets Anda
+            # Perhitungan OBV (On-Balance Volume)
             close_diff = close.diff().fillna(0)
             obv_series = np.where(close_diff > 0, volume, np.where(close_diff < 0, -volume, 0))
             total_obv = float(np.sum(obv_series))
-            avg_obv_ratio = total_obv / len(close)
+            avg_obv_ratio = total_obv / len(close) if len(close) != 0 else 1.0
+            
+            obv_plus_val = round(total_obv / avg_obv_ratio, 2) if avg_obv_ratio != 0 else 1.0
 
-            # Deteksi Akumulasi vs Distribusi OBV (Termasuk deteksi volume naik harga turun)
+            # Deteksi Akumulasi vs Distribusi OBV
             if change_pct < 0 and curr_vol > (vol_rata2 * 1.5):
-                obv_status = "🔴 DISTRIBUSI (Volume Naik, Harga Turun)"
+                obv_status = f"🔴 DISTRIBUSI (Vol Naik, Harga Turun) [OBV: {obv_plus_val}]"
             elif total_obv > avg_obv_ratio:
-                obv_status = "🟢 AKUMULASI (BUY)"
+                obv_status = f"🟢 AKUMULASI (BUY) [OBV+: {obv_plus_val}]"
             else:
-                obv_status = "🔴 DISTRIBUSI (SELL)"
+                obv_status = f"🔴 DISTRIBUSI (SELL) [OBV: {obv_plus_val}]"
 
             # Estimasi Nilai Rupiah Dana Paus / Volume Harian
             estimated_paus_value_idr = (curr_vol * current_price)
@@ -173,8 +175,8 @@ def fetch_sector_flow_data(sector_map):
                 val_str = f"Rp {estimated_paus_value_idr / 1e6:,.1f} Jt"
 
             ma20 = close.rolling(window=20).mean()
-            paus_min = round(float(ma20.iloc[-1]) * 0.97, 0)
-            paus_max = round(float(ma20.iloc[-1]) * 1.005, 0)
+            paus_min = round(float(ma20.iloc[-1]) * 0.97, 0) if not ma20.empty and not pd.isna(ma20.iloc[-1]) else current_price * 0.97
+            paus_max = round(float(ma20.iloc[-1]) * 1.005, 0) if not ma20.empty and not pd.isna(ma20.iloc[-1]) else current_price
             paus_zone = f"Rp {paus_min:,.0f} – Rp {paus_max:,.0f} ({val_str})"
 
             # Stochastic
@@ -197,8 +199,8 @@ def fetch_sector_flow_data(sector_map):
             std20 = close.rolling(window=20).std()
             lower_band = ma20 - (2 * std20)
             upper_band = ma20 + (2 * std20)
-            curr_lower = float(lower_band.iloc[-1])
-            curr_upper = float(upper_band.iloc[-1])
+            curr_lower = float(lower_band.iloc[-1]) if not lower_band.empty else current_price
+            curr_upper = float(upper_band.iloc[-1]) if not upper_band.empty else current_price
 
             if current_price <= curr_lower * 1.01:
                 bb_status = "🎯 Support Bollinger (Aman Masuk)"
