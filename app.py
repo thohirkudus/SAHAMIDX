@@ -84,7 +84,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📊 📊 [thohir saham](https://gemini.google.com/notebook/48f4b0c5-0333-4d6b-8d57-dce2d75bdadb)")
-st.markdown("Dashboard analitik institusi dengan **Radar Arus Uang Sektor**, **OBV Riil**, **Klasifikasi Bandar**, dan filter anti-terjebak.")
+st.markdown("Dashboard analitik institusi tingkat lanjut dengan **Radar Arus Sektor**, **OBV Riil**, **Klasifikasi Bandar & Nilai Rupiah**, serta **Filter Anti-Terjebak**.")
 
 # ==========================================
 # 2. PEMETAAN SEKTOR & DATA PASAR
@@ -140,7 +140,7 @@ def fetch_sector_flow_data(sector_map):
             if vol_rata2 == 0:
                 vol_rata2 = 1.0
 
-            # Logika Arus Uang Sektor & Pergerakan
+            # Arus Uang Sektor (Lampu)
             vol_ma20 = float(volume.rolling(20).mean().iloc[-1]) if len(volume) >= 20 else vol_rata2
             if change_pct > 0 and curr_vol > vol_ma20:
                 money_flow = "🟢 INFLOW"
@@ -151,7 +151,7 @@ def fetch_sector_flow_data(sector_map):
             else:
                 money_flow = "🔴 OUTFLOW (Low Vol)"
 
-            # Kelas Bandar Riil
+            # Klasifikasi Bandar & Rasio Volume
             rasio_vol = curr_vol / vol_rata2
             if rasio_vol >= 5:
                 kelas_bandar = "🐳 PAUS (>5x)"
@@ -162,11 +162,10 @@ def fetch_sector_flow_data(sector_map):
             else:
                 kelas_bandar = "⏳ NORMAL"
 
-            # Perhitungan OBV Riil
+            # Perhitungan OBV Riil & Rasio Akumulasi
             close_diff = close.diff().fillna(0)
             obv_daily_series = np.where(close_diff > 0, volume, np.where(close_diff < 0, -volume, 0))
             obv_cumulative = pd.Series(obv_daily_series).cumsum()
-            
             latest_obv = float(obv_cumulative.iloc[-1])
             obv_plus_val = round(latest_obv / vol_rata2, 2) if vol_rata2 != 0 else 1.0
 
@@ -177,7 +176,7 @@ def fetch_sector_flow_data(sector_map):
             else:
                 obv_status = f"🔴 DISTRIBUSI (SELL) [OBV Minus (-): {obv_plus_val}]"
 
-            # Estimasi Nilai Rupiah Dana Paus
+            # Estimasi Nilai Rupiah Dana Institusi
             estimated_paus_value_idr = (curr_vol * current_price)
             if estimated_paus_value_idr >= 1e9:
                 val_str = f"Rp {estimated_paus_value_idr / 1e9:,.1f} M"
@@ -189,7 +188,7 @@ def fetch_sector_flow_data(sector_map):
             paus_max = round(float(ma20.iloc[-1]) * 1.005, 0) if not ma20.empty and not pd.isna(ma20.iloc[-1]) else current_price
             paus_zone = f"Rp {paus_min:,.0f} – Rp {paus_max:,.0f} ({val_str})"
 
-            # Stochastic
+            # Stochastic Golden Cross
             low_14 = low.rolling(window=14).min()
             high_14 = high.rolling(window=14).max()
             stoch_k = 100 * ((close - low_14) / (high_14 - low_14))
@@ -205,7 +204,7 @@ def fetch_sector_flow_data(sector_map):
             elif curr_k < 20:
                 stoch_signal = "📉 Oversold Zone"
 
-            # Bollinger Bands
+            # Bollinger Bands (Filter Anti-Terjebak)
             std20 = close.rolling(window=20).std()
             lower_band = ma20 - (2 * std20)
             upper_band = ma20 + (2 * std20)
@@ -265,7 +264,7 @@ def fetch_sector_flow_data(sector_map):
     return df_result
 
 # Load Data Market
-with st.spinner("Memuat data pasar real-time & kalkulasi arus sektor..."):
+with st.spinner("Memuat data pasar real-time & kalkulasi institusi..."):
     df_screener = fetch_sector_flow_data(SECTOR_MAPPING)
 
 if df_screener.empty:
@@ -315,7 +314,9 @@ else:
 
     st.markdown("---")
 
-    # Tabel Detail Saham dengan Pembekuan Kolom (Pinned)
+    # ==========================================
+    # TABEL UTAMA EMITEN (DENGAN PEMBEKUAN KOLOM)
+    # ==========================================
     st.subheader("📊 Daftar Emiten, Arus Uang & Analisis OBV Riil")
     filter_sector = st.selectbox("Filter Berdasarkan Sektor IDX:", ["Semua Sektor"] + list(df_screener['Sektor'].unique()))
 
@@ -323,6 +324,7 @@ else:
     if filter_sector != "Semua Sektor":
         df_filtered = df_filtered[df_filtered['Sektor'] == filter_sector]
 
+    # Tabel utama dengan kolom Kode Saham terkunci (pinned) dan tanpa nomor indeks
     st.dataframe(
         df_filtered, 
         use_container_width=True, 
@@ -336,7 +338,7 @@ else:
         }
     )
 
-    # Tabel Area Jaring Support
+    # Tabel Rekomendasi Area Jaring Support
     st.markdown("### 🎯 Rekomendasi Area Masuk (Jaring Support)")
     jaring_data = []
     for _, row in df_filtered.head(8).iterrows():
@@ -365,7 +367,7 @@ else:
 
     st.markdown("---")
 
-    # Grafik Sebaran Risiko
+    # Grafik Sebaran Risiko (Scatter Plot Beta vs Alpha)
     st.subheader("📈 Scatter Plot Analisis Risiko & Imbal Hasil")
     df_screener['Marker_Size'] = 10
 
