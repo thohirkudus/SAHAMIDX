@@ -38,7 +38,7 @@ st.markdown("""
         color: #E2EAF8 !important;
     }
     
-    /* Styling Kartu / Metrik yang Responsif di HP */
+    /* Styling Kartu / Metrik Responsif */
     div[data-testid="stMetric"] {
         background: linear-gradient(145deg, #0F1D38 0%, #0A1526 100%);
         border: 1px solid #1E2D44;
@@ -59,7 +59,7 @@ st.markdown("""
         font-size: 20px !important;
     }
 
-    /* Tabel / DataFrame Agar Tidak Terpotong di Layar Kecil */
+    /* Tabel / DataFrame */
     .stDataFrame {
         border-radius: 14px;
         border: 1px solid #1E2D44;
@@ -75,7 +75,6 @@ st.markdown("""
         border-radius: 12px;
     }
 
-    /* Optimasi Tampilan Mobile (Media Query) */
     @media (max-width: 768px) {
         h1 { font-size: 1.5rem !important; }
         h2 { font-size: 1.2rem !important; }
@@ -89,7 +88,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🏛️ JOSAT - Institutional IDX Screener")
-st.markdown("Dashboard analitik tingkat institusi dengan antarmuka responsif (*Mobile & Desktop*) untuk memantau **Arus Uang Sektor** dan **Sinyal Teknikal Beli**.")
+st.markdown("Dashboard analitik tingkat institusi untuk memantau **Arus Uang Sektor**, **Sinyal Teknikal Beli**, serta filter anti-terjebak (*Bollinger & MACD*).")
 
 # ==========================================
 # 2. PEMETAAN SEKTOR & DATA PASAR
@@ -143,6 +142,7 @@ def fetch_sector_flow_data(sector_map):
             curr_vol = float(volume.iloc[-1])
             vol_ma20 = float(volume.rolling(20).mean().iloc[-1])
 
+            # Arus Uang
             if change_pct > 0 and curr_vol > vol_ma20:
                 money_flow = "🟢 INFLOW"
             elif change_pct < 0 and curr_vol > vol_ma20:
@@ -152,6 +152,7 @@ def fetch_sector_flow_data(sector_map):
             else:
                 money_flow = "🔴 OUTFLOW (Low Vol)"
 
+            # Stochastic
             low_14 = low.rolling(window=14).min()
             high_14 = high.rolling(window=14).max()
             stoch_k = 100 * ((close - low_14) / (high_14 - low_14))
@@ -167,6 +168,38 @@ def fetch_sector_flow_data(sector_map):
             elif curr_k < 20:
                 stoch_signal = "📉 Oversold Zone"
 
+            # Bollinger Bands (Anti-Terjebak)
+            ma20 = close.rolling(window=20).mean()
+            std20 = close.rolling(window=20).std()
+            lower_band = ma20 - (2 * std20)
+            upper_band = ma20 + (2 * std20)
+            curr_lower = float(lower_band.iloc[-1])
+            curr_upper = float(upper_band.iloc[-1])
+
+            if current_price <= curr_lower * 1.01:
+                bb_status = "🎯 Support Bollinger (Aman Masuk)"
+            elif current_price >= curr_upper * 0.99:
+                bb_status = "⚠️ Rawan Pucuk (Bollinger Atas)"
+            else:
+                bb_status = "⚖️ Zona Normal"
+
+            # MACD Histogram (Konfirmasi Momentum)
+            ema12 = close.ewm(span=12, adjust=False).mean()
+            ema26 = close.ewm(span=26, adjust=False).mean()
+            macd_line = ema12 - ema26
+            signal_line = macd_line.ewm(span=9, adjust=False).mean()
+            macd_hist = macd_line - signal_line
+            curr_hist = float(macd_hist.iloc[-1])
+            prev_hist = float(macd_hist.iloc[-2])
+
+            if prev_hist < 0 and curr_hist > 0:
+                macd_status = "🔥 MACD Bullish Cross"
+            elif curr_hist > prev_hist:
+                macd_status = "📈 Momentum Menguat"
+            else:
+                macd_status = "📉 Momentum Melemah"
+
+            # Alpha & Beta
             stock_returns = close.pct_change().dropna()
             if not bm_returns.empty:
                 combined = pd.concat([stock_returns, bm_returns], axis=1).dropna()
@@ -190,7 +223,9 @@ def fetch_sector_flow_data(sector_map):
                 "Change (%)": round(change_pct, 2),
                 "Alpha (%)": round(alpha, 2),
                 "Beta": round(beta, 2),
-                "Sinyal Teknikal": stoch_signal
+                "Sinyal Teknikal": stoch_signal,
+                "Status Bollinger": bb_status,
+                "Momentum MACD": macd_status
             })
         except Exception:
             continue
@@ -252,21 +287,18 @@ else:
     
     flow_badges_str = "  |  ".join([f"**{row['Sektor IDX']}** {row['Status Arus Uang']}" for _, row in df_sector_flow.iterrows()])
     st.markdown(f"### `{flow_badges_str}`")
-    
-    # Menggunakan hide_index=True agar kolom nomor bawaan Streamlit hilang
     st.dataframe(df_sector_flow, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
     # Tabel Detail Saham & Area Jaring
-    st.subheader("📊 Daftar Emiten & Area Masuk (Jaring)")
+    st.subheader("📊 Daftar Emiten & Filter Anti-Terjebak")
     filter_sector = st.selectbox("Filter Berdasarkan Sektor IDX:", ["Semua Sektor"] + list(df_screener['Sektor'].unique()))
 
     df_filtered = df_screener.copy()
     if filter_sector != "Semua Sektor":
         df_filtered = df_filtered[df_filtered['Sektor'] == filter_sector]
 
-    # Menghilangkan indeks default / kolom nomor pada tabel utama emiten
     st.dataframe(df_filtered, use_container_width=True, height=400, hide_index=True)
 
     # Tabel Area Jaring Support
@@ -281,10 +313,9 @@ else:
             "Sektor": row['Sektor'],
             "Harga Sekarang": p,
             "Area Jaring Support": f"Rp {jaring_bawah:,.0f} – Rp {jaring_atas:,.0f}",
-            "Sinyal": row['Sinyal Teknikal']
+            "Sinyal": row['Sinyal Teknikal'],
+            "Filter Bollinger": row['Status Bollinger']
         })
-    
-    # Menghilangkan indeks default / kolom nomor pada tabel area jaring
     st.dataframe(pd.DataFrame(jaring_data), use_container_width=True, hide_index=True)
 
     st.markdown("---")
