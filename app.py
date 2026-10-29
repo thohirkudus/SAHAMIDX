@@ -83,8 +83,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 📊 [thohir saham](https://gemini.google.com/notebook/48f4b0c5-0333-4d6b-8d57-dce2d75bdadb) - Institutional IDX Screener")
-st.markdown("Dashboard analitik tingkat institusi untuk memantau **Arus Uang Sektor**, **Sinyal Teknikal Beli**, **Klasifikasi Kelas Bandar (Paus/Hiu)**, serta filter anti-terjebak.")
+st.title("📊 📊 thohir saham - Institutional IDX Screener")
+st.markdown("Dashboard analitik tingkat institusi untuk memantau **Arus Uang Sektor**, **Sinyal Teknikal Beli**, **Kelas Bandar & Nilai Rupiah Paus**, serta filter anti-terjebak.")
 
 # ==========================================
 # 2. PEMETAAN SEKTOR & DATA PASAR
@@ -140,7 +140,7 @@ def fetch_sector_flow_data(sector_map):
             if vol_rata2 == 0:
                 vol_rata2 = 1.0
 
-            # Rasio Volume terhadap Rata-rata (Logika Google Sheets Anda)
+            # Rasio Volume terhadap Rata-rata (Logika Google Sheets)
             rasio_vol = curr_vol / vol_rata2
             
             # Klasifikasi Kelas Bandar
@@ -153,7 +153,7 @@ def fetch_sector_flow_data(sector_map):
             else:
                 kelas_bandar = "⏳ NORMAL"
 
-            # Estimasi Nilai Rupiah Dana Paus / Volume Maksimal Harian
+            # Estimasi Nilai Rupiah Dana Paus / Volume Harian
             estimated_paus_value_idr = (curr_vol * current_price)
             if estimated_paus_value_idr >= 1e9:
                 val_str = f"Rp {estimated_paus_value_idr / 1e9:,.1f} M"
@@ -202,7 +202,7 @@ def fetch_sector_flow_data(sector_map):
             else:
                 bb_status = "⚖️ Zona Normal"
 
-            # Zona Support Paus
+            # Zona Support Paus & Nilai Rupiah
             paus_min = round(float(ma20.iloc[-1]) * 0.97, 0)
             paus_max = round(float(ma20.iloc[-1]) * 1.005, 0)
             paus_zone = f"Rp {paus_min:,.0f} – Rp {paus_max:,.0f} ({val_str})"
@@ -279,7 +279,6 @@ else:
     for sector_name, group in df_screener.groupby("Sektor"):
         inflow_count = len(group[group['Arus Uang'].str.contains("INFLOW")])
         outflow_count = len(group[group['Arus Uang'].str.contains("OUTFLOW")])
-        avg_change = group['Change (%)'].mean() if 'Change (%)' in group.columns else 0.0
         status = "🟢 INFLOW" if inflow_count >= outflow_count else "🔴 OUTFLOW"
             
         sector_flow_summary.append({
@@ -295,7 +294,7 @@ else:
 
     st.markdown("---")
 
-    # Tabel Detail Saham dengan Kelas Bandar & Kolom Paus
+    # Tabel Detail Saham dengan Pengaturan Kolom Terkunci (Pinned) untuk Kode Saham
     st.subheader("📊 Daftar Emiten, Kelas Bandar & Nilai Akumulasi Paus")
     filter_sector = st.selectbox("Filter Berdasarkan Sektor IDX:", ["Semua Sektor"] + list(df_screener['Sektor'].unique()))
 
@@ -303,7 +302,19 @@ else:
     if filter_sector != "Semua Sektor":
         df_filtered = df_filtered[df_filtered['Sektor'] == filter_sector]
 
-    st.dataframe(df_filtered, use_container_width=True, height=400, hide_index=True)
+    # Menggunakan column_config untuk membekukan kolom Kode Saham agar tidak bergeser saat digulirkan ke samping
+    st.dataframe(
+        df_filtered, 
+        use_container_width=True, 
+        height=400, 
+        hide_index=True,
+        column_config={
+            "Kode Saham": st.column_config.TextColumn(
+                "Kode Saham",
+                pinned=True
+            )
+        }
+    )
 
     # Tabel Area Jaring Support
     st.markdown("### 🎯 Rekomendasi Area Masuk (Jaring Support)")
@@ -318,7 +329,17 @@ else:
             "Sinyal": row['Sinyal Teknikal'],
             "Filter Bollinger": row['Status Bollinger']
         })
-    st.dataframe(pd.DataFrame(jaring_data), use_container_width=True, hide_index=True)
+    st.dataframe(
+        pd.DataFrame(jaring_data), 
+        use_container_width=True, 
+        hide_index=True,
+        column_config={
+            "Kode Saham": st.column_config.TextColumn(
+                "Kode Saham",
+                pinned=True
+            )
+        }
+    )
 
     st.markdown("---")
 
