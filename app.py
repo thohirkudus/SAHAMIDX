@@ -8,7 +8,7 @@ import plotly.express as px
 # 1. KONFIGURASI HALAMAN & CSS RESPONSIVE MOBILE
 # ==========================================
 st.set_page_config(
-    page_title="THOHIR IDX Institutional Screener",
+    page_title="JOSAT IDX Institutional Screener",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -88,7 +88,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏛️ THOHIR - Institutional IDX Screener")
+st.title("🏛️ JOSAT - Institutional IDX Screener")
 st.markdown("Dashboard analitik tingkat institusi dengan antarmuka responsif (*Mobile & Desktop*) untuk memantau **Arus Uang Sektor** dan **Sinyal Teknikal Beli**.")
 
 # ==========================================
@@ -214,7 +214,7 @@ with st.spinner("Memuat data pasar real-time..."):
 if df_screener.empty:
     st.warning("Gagal memuat data pasar.")
 else:
-    # Kartu Ringkasan Atas (Otomatis menyusun ulang menjadi kolom responsif di HP)
+    # Kartu Ringkasan Atas
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Emiten", f"{len(df_screener)} Saham")
@@ -252,7 +252,9 @@ else:
     
     flow_badges_str = "  |  ".join([f"**{row['Sektor IDX']}** {row['Status Arus Uang']}" for _, row in df_sector_flow.iterrows()])
     st.markdown(f"### `{flow_badges_str}`")
-    st.dataframe(df_sector_flow, use_container_width=True)
+    
+    # Menggunakan hide_index=True agar kolom nomor bawaan Streamlit hilang
+    st.dataframe(df_sector_flow, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
@@ -264,7 +266,8 @@ else:
     if filter_sector != "Semua Sektor":
         df_filtered = df_filtered[df_filtered['Sektor'] == filter_sector]
 
-    st.dataframe(df_filtered, use_container_width=True, height=400)
+    # Menghilangkan indeks default / kolom nomor pada tabel utama emiten
+    st.dataframe(df_filtered, use_container_width=True, height=400, hide_index=True)
 
     # Tabel Area Jaring Support
     st.markdown("### 🎯 Rekomendasi Area Masuk (Jaring Support)")
@@ -280,7 +283,9 @@ else:
             "Area Jaring Support": f"Rp {jaring_bawah:,.0f} – Rp {jaring_atas:,.0f}",
             "Sinyal": row['Sinyal Teknikal']
         })
-    st.dataframe(pd.DataFrame(jaring_data), use_container_width=True)
+    
+    # Menghilangkan indeks default / kolom nomor pada tabel area jaring
+    st.dataframe(pd.DataFrame(jaring_data), use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
