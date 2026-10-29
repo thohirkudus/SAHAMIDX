@@ -8,7 +8,7 @@ import plotly.express as px
 # 1. KONFIGURASI HALAMAN & CSS RESPONSIVE MOBILE
 # ==========================================
 st.set_page_config(
-    page_title="JOSAT IDX Institutional Screener",
+    page_title="thohir saham - Institutional Screener",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -18,7 +18,6 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
 
-    /* Global Dark Theme Ala JOSAT */
     .stApp {
         background-color: #080C14;
         font-family: 'Inter', sans-serif;
@@ -38,7 +37,6 @@ st.markdown("""
         color: #E2EAF8 !important;
     }
     
-    /* Styling Kartu / Metrik Responsif */
     div[data-testid="stMetric"] {
         background: linear-gradient(145deg, #0F1D38 0%, #0A1526 100%);
         border: 1px solid #1E2D44;
@@ -59,7 +57,6 @@ st.markdown("""
         font-size: 20px !important;
     }
 
-    /* Tabel / DataFrame */
     .stDataFrame {
         border-radius: 14px;
         border: 1px solid #1E2D44;
@@ -67,7 +64,6 @@ st.markdown("""
         overflow-x: auto;
     }
     
-    /* Tombol & Selectbox */
     .stSelectbox div[data-baseweb="select"] {
         background-color: #0E1520;
         border-color: #1E2D44;
@@ -87,7 +83,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏛️ JOSAT - Institutional IDX Screener")
+st.title("📊 thohir saham - Institutional IDX Screener")
 st.markdown("Dashboard analitik tingkat institusi untuk memantau **Arus Uang Sektor**, **Sinyal Teknikal Beli**, serta filter anti-terjebak (*Bollinger & MACD*).")
 
 # ==========================================
