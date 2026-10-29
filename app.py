@@ -83,8 +83,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 📊 📊 📊 [thohir saham](https://gemini.google.com/notebook/48f4b0c5-0333-4d6b-8d57-dce2d75bdadb)")
-st.markdown("Dashboard analitik institusi dengan perhitungan **On-Balance Volume (OBV) Riil**, **Klasifikasi Bandar**, dan filter anti-terjebak.")
+st.title("📊 📊 [thohir saham](https://gemini.google.com/notebook/48f4b0c5-0333-4d6b-8d57-dce2d75bdadb)")
+st.markdown("Dashboard analitik institusi dengan **Radar Arus Uang Sektor**, **OBV Riil**, **Klasifikasi Bandar**, dan filter anti-terjebak.")
 
 # ==========================================
 # 2. PEMETAAN SEKTOR & DATA PASAR
@@ -116,7 +116,6 @@ def fetch_sector_flow_data(sector_map):
 
     for ticker, sector in sector_map.items():
         try:
-            # Menarik data riil 3 bulan terakhir untuk kalkulasi OBV yang akurat
             df = yf.download(ticker, period="3mo", interval="1d", progress=False)
             if df.empty or len(df) < 22:
                 continue
@@ -141,7 +140,18 @@ def fetch_sector_flow_data(sector_map):
             if vol_rata2 == 0:
                 vol_rata2 = 1.0
 
-            # Logika Rasio Volume & Kelas Bandar Riil
+            # Logika Arus Uang Sektor & Pergerakan
+            vol_ma20 = float(volume.rolling(20).mean().iloc[-1]) if len(volume) >= 20 else vol_rata2
+            if change_pct > 0 and curr_vol > vol_ma20:
+                money_flow = "🟢 INFLOW"
+            elif change_pct < 0 and curr_vol > vol_ma20:
+                money_flow = "🔴 OUTFLOW"
+            elif change_pct > 0:
+                money_flow = "🟢 INFLOW (Low Vol)"
+            else:
+                money_flow = "🔴 OUTFLOW (Low Vol)"
+
+            # Kelas Bandar Riil
             rasio_vol = curr_vol / vol_rata2
             if rasio_vol >= 5:
                 kelas_bandar = "🐳 PAUS (>5x)"
@@ -152,20 +162,14 @@ def fetch_sector_flow_data(sector_map):
             else:
                 kelas_bandar = "⏳ NORMAL"
 
-            # ==========================================
-            # PERHITUNGAN ON-BALANCE VOLUME (OBV) RIIL
-            # ==========================================
+            # Perhitungan OBV Riil
             close_diff = close.diff().fillna(0)
-            # Menghitung OBV secara kumulatif riil harian
             obv_daily_series = np.where(close_diff > 0, volume, np.where(close_diff < 0, -volume, 0))
             obv_cumulative = pd.Series(obv_daily_series).cumsum()
             
-            # Rasio OBV Riil Terkini terhadap Rata-rata Volume
             latest_obv = float(obv_cumulative.iloc[-1])
-            avg_vol_series = float(volume.mean())
-            obv_plus_val = round(latest_obv / avg_vol_series, 2) if avg_vol_series != 0 else 1.0
+            obv_plus_val = round(latest_obv / vol_rata2, 2) if vol_rata2 != 0 else 1.0
 
-            # Deteksi Akumulasi vs Distribusi berdasarkan OBV Riil & Price Action
             if change_pct < 0 and curr_vol > (vol_rata2 * 1.5):
                 obv_status = f"🔴 DISTRIBUSI (Vol Naik, Harga Turun) [OBV: {obv_plus_val}]"
             elif obv_plus_val >= 1.0:
@@ -173,7 +177,7 @@ def fetch_sector_flow_data(sector_map):
             else:
                 obv_status = f"🔴 DISTRIBUSI (SELL) [OBV Minus (-): {obv_plus_val}]"
 
-            # Estimasi Nilai Rupiah Dana Paus / Volume Harian Riil
+            # Estimasi Nilai Rupiah Dana Paus
             estimated_paus_value_idr = (curr_vol * current_price)
             if estimated_paus_value_idr >= 1e9:
                 val_str = f"Rp {estimated_paus_value_idr / 1e9:,.1f} M"
@@ -234,8 +238,10 @@ def fetch_sector_flow_data(sector_map):
             data_list.append({
                 "Kode Saham": ticker.replace(".JK", ""),
                 "Sektor": sector,
+                "Arus Uang": money_flow,
                 "Status OBV Riil": obv_status,
                 "Harga": round(current_price, 2),
+                "Change (%)": round(change_pct, 2),
                 "Kelas Bandar": kelas_bandar,
                 "Kolom Paus (Akumulasi & Nilai)": paus_zone,
                 "Alpha (%)": round(alpha, 2),
@@ -249,17 +255,17 @@ def fetch_sector_flow_data(sector_map):
     df_result = pd.DataFrame(data_list)
     if not df_result.empty:
         df_result['Is_Golden_Cross'] = df_result['Sinyal Teknikal'].str.contains("Golden Cross").astype(int)
-        df_result['Is_Akumulasi'] = df_result['Status OBV Riil'].str.contains("AKUMULASI").astype(int)
+        df_result['Is_Inflow'] = df_result['Arus Uang'].str.contains("🟢 INFLOW").astype(int)
         
         df_result = df_result.sort_values(
-            by=["Is_Golden_Cross", "Is_Akumulasi", "Alpha (%)"], 
+            by=["Is_Golden_Cross", "Is_Inflow", "Alpha (%)"], 
             ascending=[False, False, False]
-        ).drop(columns=['Is_Golden_Cross', 'Is_Akumulasi']).reset_index(drop=True)
+        ).drop(columns=['Is_Golden_Cross', 'Is_Inflow']).reset_index(drop=True)
         
     return df_result
 
 # Load Data Market
-with st.spinner("Memuat data pasar real-time & kalkulasi OBV riil..."):
+with st.spinner("Memuat data pasar real-time & kalkulasi arus sektor..."):
     df_screener = fetch_sector_flow_data(SECTOR_MAPPING)
 
 if df_screener.empty:
@@ -281,8 +287,36 @@ else:
 
     st.markdown("---")
 
+    # ==========================================
+    # RADAR ARUS UANG SEKTOR (LAMPU PER SEKTOR)
+    # ==========================================
+    st.subheader("🌍 Radar Arus Uang Sektor IDX")
+    sector_flow_summary = []
+    for sector_name, group in df_screener.groupby("Sektor"):
+        inflow_count = len(group[group['Arus Uang'].str.contains("INFLOW")])
+        outflow_count = len(group[group['Arus Uang'].str.contains("OUTFLOW")])
+        avg_change = group['Change (%)'].mean()
+        status = "🟢 INFLOW" if inflow_count >= outflow_count else "🔴 OUTFLOW"
+            
+        sector_flow_summary.append({
+            "Sektor IDX": sector_name,
+            "Status Arus Uang": status,
+            "Rata-Rata Perubahan (%)": round(avg_change, 2),
+            "Jumlah Emiten": len(group)
+        })
+        
+    df_sector_flow = pd.DataFrame(sector_flow_summary)
+    df_sector_flow['Is_Inflow'] = df_sector_flow['Status Arus Uang'].str.contains("🟢 INFLOW").astype(int)
+    df_sector_flow = df_sector_flow.sort_values(by=["Is_Inflow", "Rata-Rata Perubahan (%)"], ascending=[False, False]).drop(columns=['Is_Inflow']).reset_index(drop=True)
+    
+    flow_badges_str = "  |  ".join([f"**{row['Sektor IDX']}** {row['Status Arus Uang']}" for _, row in df_sector_flow.iterrows()])
+    st.markdown(f"### `{flow_badges_str}`")
+    st.dataframe(df_sector_flow, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
     # Tabel Detail Saham dengan Pembekuan Kolom (Pinned)
-    st.subheader("📊 Daftar Emiten & Analisis OBV Riil Institusi")
+    st.subheader("📊 Daftar Emiten, Arus Uang & Analisis OBV Riil")
     filter_sector = st.selectbox("Filter Berdasarkan Sektor IDX:", ["Semua Sektor"] + list(df_screener['Sektor'].unique()))
 
     df_filtered = df_screener.copy()
@@ -309,6 +343,7 @@ else:
         jaring_data.append({
             "Kode Saham": row['Kode Saham'],
             "Sektor": row['Sektor'],
+            "Arus Uang": row['Arus Uang'],
             "Harga Sekarang": row['Harga'],
             "Status OBV Riil": row['Status OBV Riil'],
             "Kelas Bandar": row['Kelas Bandar'],
