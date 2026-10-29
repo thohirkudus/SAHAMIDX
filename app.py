@@ -83,8 +83,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 📊 📊 thohir saham")
-st.markdown("Dashboard analitik institusi dengan **On-Balance Volume (OBV)**, **Klasifikasi Bandar**, dan filter anti-terjebak.")
+st.title("📊 📊 📊 📊 [thohir saham](https://gemini.google.com/notebook/48f4b0c5-0333-4d6b-8d57-dce2d75bdadb)")
+st.markdown("Dashboard analitik institusi dengan perhitungan **On-Balance Volume (OBV) Riil**, **Klasifikasi Bandar**, dan filter anti-terjebak.")
 
 # ==========================================
 # 2. PEMETAAN SEKTOR & DATA PASAR
@@ -116,6 +116,7 @@ def fetch_sector_flow_data(sector_map):
 
     for ticker, sector in sector_map.items():
         try:
+            # Menarik data riil 3 bulan terakhir untuk kalkulasi OBV yang akurat
             df = yf.download(ticker, period="3mo", interval="1d", progress=False)
             if df.empty or len(df) < 22:
                 continue
@@ -140,7 +141,7 @@ def fetch_sector_flow_data(sector_map):
             if vol_rata2 == 0:
                 vol_rata2 = 1.0
 
-            # Logika Rasio Volume & Kelas Bandar
+            # Logika Rasio Volume & Kelas Bandar Riil
             rasio_vol = curr_vol / vol_rata2
             if rasio_vol >= 5:
                 kelas_bandar = "🐳 PAUS (>5x)"
@@ -151,23 +152,28 @@ def fetch_sector_flow_data(sector_map):
             else:
                 kelas_bandar = "⏳ NORMAL"
 
-            # Perhitungan OBV (On-Balance Volume)
+            # ==========================================
+            # PERHITUNGAN ON-BALANCE VOLUME (OBV) RIIL
+            # ==========================================
             close_diff = close.diff().fillna(0)
-            obv_series = np.where(close_diff > 0, volume, np.where(close_diff < 0, -volume, 0))
-            total_obv = float(np.sum(obv_series))
-            avg_obv_ratio = total_obv / len(close) if len(close) != 0 else 1.0
+            # Menghitung OBV secara kumulatif riil harian
+            obv_daily_series = np.where(close_diff > 0, volume, np.where(close_diff < 0, -volume, 0))
+            obv_cumulative = pd.Series(obv_daily_series).cumsum()
             
-            obv_plus_val = round(total_obv / avg_obv_ratio, 2) if avg_obv_ratio != 0 else 1.0
+            # Rasio OBV Riil Terkini terhadap Rata-rata Volume
+            latest_obv = float(obv_cumulative.iloc[-1])
+            avg_vol_series = float(volume.mean())
+            obv_plus_val = round(latest_obv / avg_vol_series, 2) if avg_vol_series != 0 else 1.0
 
-            # Deteksi Akumulasi vs Distribusi OBV
+            # Deteksi Akumulasi vs Distribusi berdasarkan OBV Riil & Price Action
             if change_pct < 0 and curr_vol > (vol_rata2 * 1.5):
                 obv_status = f"🔴 DISTRIBUSI (Vol Naik, Harga Turun) [OBV: {obv_plus_val}]"
-            elif total_obv > avg_obv_ratio:
-                obv_status = f"🟢 AKUMULASI (BUY) [OBV+: {obv_plus_val}]"
+            elif obv_plus_val >= 1.0:
+                obv_status = f"🟢 AKUMULASI (BUY) [OBV Plus (+): {obv_plus_val}]"
             else:
-                obv_status = f"🔴 DISTRIBUSI (SELL) [OBV: {obv_plus_val}]"
+                obv_status = f"🔴 DISTRIBUSI (SELL) [OBV Minus (-): {obv_plus_val}]"
 
-            # Estimasi Nilai Rupiah Dana Paus / Volume Harian
+            # Estimasi Nilai Rupiah Dana Paus / Volume Harian Riil
             estimated_paus_value_idr = (curr_vol * current_price)
             if estimated_paus_value_idr >= 1e9:
                 val_str = f"Rp {estimated_paus_value_idr / 1e9:,.1f} M"
@@ -209,7 +215,7 @@ def fetch_sector_flow_data(sector_map):
             else:
                 bb_status = "⚖️ Zona Normal"
 
-            # Alpha & Beta
+            # Alpha & Beta Riil
             stock_returns = close.pct_change().dropna()
             if not bm_returns.empty:
                 combined = pd.concat([stock_returns, bm_returns], axis=1).dropna()
@@ -228,7 +234,7 @@ def fetch_sector_flow_data(sector_map):
             data_list.append({
                 "Kode Saham": ticker.replace(".JK", ""),
                 "Sektor": sector,
-                "Status OBV": obv_status,
+                "Status OBV Riil": obv_status,
                 "Harga": round(current_price, 2),
                 "Kelas Bandar": kelas_bandar,
                 "Kolom Paus (Akumulasi & Nilai)": paus_zone,
@@ -243,7 +249,7 @@ def fetch_sector_flow_data(sector_map):
     df_result = pd.DataFrame(data_list)
     if not df_result.empty:
         df_result['Is_Golden_Cross'] = df_result['Sinyal Teknikal'].str.contains("Golden Cross").astype(int)
-        df_result['Is_Akumulasi'] = df_result['Status OBV'].str.contains("AKUMULASI").astype(int)
+        df_result['Is_Akumulasi'] = df_result['Status OBV Riil'].str.contains("AKUMULASI").astype(int)
         
         df_result = df_result.sort_values(
             by=["Is_Golden_Cross", "Is_Akumulasi", "Alpha (%)"], 
@@ -253,7 +259,7 @@ def fetch_sector_flow_data(sector_map):
     return df_result
 
 # Load Data Market
-with st.spinner("Memuat data pasar real-time..."):
+with st.spinner("Memuat data pasar real-time & kalkulasi OBV riil..."):
     df_screener = fetch_sector_flow_data(SECTOR_MAPPING)
 
 if df_screener.empty:
@@ -276,7 +282,7 @@ else:
     st.markdown("---")
 
     # Tabel Detail Saham dengan Pembekuan Kolom (Pinned)
-    st.subheader("📊 Daftar Emiten & Analisis OBV Institusi")
+    st.subheader("📊 Daftar Emiten & Analisis OBV Riil Institusi")
     filter_sector = st.selectbox("Filter Berdasarkan Sektor IDX:", ["Semua Sektor"] + list(df_screener['Sektor'].unique()))
 
     df_filtered = df_screener.copy()
@@ -304,7 +310,7 @@ else:
             "Kode Saham": row['Kode Saham'],
             "Sektor": row['Sektor'],
             "Harga Sekarang": row['Harga'],
-            "Status OBV": row['Status OBV'],
+            "Status OBV Riil": row['Status OBV Riil'],
             "Kelas Bandar": row['Kelas Bandar'],
             "Kolom Paus (Akumulasi & Nilai)": row['Kolom Paus (Akumulasi & Nilai)'],
             "Sinyal": row['Sinyal Teknikal'],
