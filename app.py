@@ -74,7 +74,7 @@ st.markdown("""
     @media (max-width: 768px) {
         h1 { font-size: 1.5rem !important; }
         h2 { font-size: 1.2rem !important; }
-        h3 { font-size: 1rem !important; }
+        h3 { font-size: 1.0rem !important; }
         .block-container {
             padding-left: 0.5rem;
             padding-right: 0.5rem;
@@ -83,8 +83,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 📊 thohir saham - Institutional IDX Screener")
-st.markdown("Dashboard analitik tingkat institusi untuk memantau **Arus Uang Sektor**, **Sinyal Teknikal Beli**, **Kelas Bandar & Nilai Rupiah Paus**, serta filter anti-terjebak.")
+st.title("📊 📊 📊 [thohir saham](https://gemini.google.com/notebook/48f4b0c5-0333-4d6b-8d57-dce2d75bdadb)")
+st.markdown("Dashboard analitik institusi dengan **On-Balance Volume (OBV)**, **Klasifikasi Bandar**, dan filter anti-terjebak.")
 
 # ==========================================
 # 2. PEMETAAN SEKTOR & DATA PASAR
@@ -116,8 +116,8 @@ def fetch_sector_flow_data(sector_map):
 
     for ticker, sector in sector_map.items():
         try:
-            df = yf.download(ticker, period="1y", interval="1d", progress=False)
-            if df.empty or len(df) < 50:
+            df = yf.download(ticker, period="3mo", interval="1d", progress=False)
+            if df.empty or len(df) < 22:
                 continue
                 
             if isinstance(df.columns, pd.MultiIndex):
@@ -136,14 +136,12 @@ def fetch_sector_flow_data(sector_map):
             change_pct = ((current_price - prev_price) / prev_price) * 100
             
             curr_vol = float(volume.iloc[-1])
-            vol_rata2 = float(volume.rolling(200).mean().iloc[-1]) if len(volume) >= 200 else float(volume.mean())
+            vol_rata2 = float(volume.mean())
             if vol_rata2 == 0:
                 vol_rata2 = 1.0
 
-            # Rasio Volume terhadap Rata-rata (Logika Google Sheets)
+            # Logika Rasio Volume & Kelas Bandar
             rasio_vol = curr_vol / vol_rata2
-            
-            # Klasifikasi Kelas Bandar
             if rasio_vol >= 5:
                 kelas_bandar = "🐳 PAUS (>5x)"
             elif rasio_vol >= 3:
@@ -153,6 +151,20 @@ def fetch_sector_flow_data(sector_map):
             else:
                 kelas_bandar = "⏳ NORMAL"
 
+            # Perhitungan OBV (On-Balance Volume) ala Formula Google Sheets Anda
+            close_diff = close.diff().fillna(0)
+            obv_series = np.where(close_diff > 0, volume, np.where(close_diff < 0, -volume, 0))
+            total_obv = float(np.sum(obv_series))
+            avg_obv_ratio = total_obv / len(close)
+
+            # Deteksi Akumulasi vs Distribusi OBV (Termasuk deteksi volume naik harga turun)
+            if change_pct < 0 and curr_vol > (vol_rata2 * 1.5):
+                obv_status = "🔴 DISTRIBUSI (Volume Naik, Harga Turun)"
+            elif total_obv > avg_obv_ratio:
+                obv_status = "🟢 AKUMULASI (BUY)"
+            else:
+                obv_status = "🔴 DISTRIBUSI (SELL)"
+
             # Estimasi Nilai Rupiah Dana Paus / Volume Harian
             estimated_paus_value_idr = (curr_vol * current_price)
             if estimated_paus_value_idr >= 1e9:
@@ -160,16 +172,10 @@ def fetch_sector_flow_data(sector_map):
             else:
                 val_str = f"Rp {estimated_paus_value_idr / 1e6:,.1f} Jt"
 
-            # Arus Uang Dasar
-            vol_ma20 = float(volume.rolling(20).mean().iloc[-1])
-            if change_pct > 0 and curr_vol > vol_ma20:
-                money_flow = "🟢 INFLOW"
-            elif change_pct < 0 and curr_vol > vol_ma20:
-                money_flow = "🔴 OUTFLOW"
-            elif change_pct > 0:
-                money_flow = "🟢 INFLOW (Low Vol)"
-            else:
-                money_flow = "🔴 OUTFLOW (Low Vol)"
+            ma20 = close.rolling(window=20).mean()
+            paus_min = round(float(ma20.iloc[-1]) * 0.97, 0)
+            paus_max = round(float(ma20.iloc[-1]) * 1.005, 0)
+            paus_zone = f"Rp {paus_min:,.0f} – Rp {paus_max:,.0f} ({val_str})"
 
             # Stochastic
             low_14 = low.rolling(window=14).min()
@@ -187,8 +193,7 @@ def fetch_sector_flow_data(sector_map):
             elif curr_k < 20:
                 stoch_signal = "📉 Oversold Zone"
 
-            # Bollinger Bands (Anti-Terjebak)
-            ma20 = close.rolling(window=20).mean()
+            # Bollinger Bands
             std20 = close.rolling(window=20).std()
             lower_band = ma20 - (2 * std20)
             upper_band = ma20 + (2 * std20)
@@ -201,11 +206,6 @@ def fetch_sector_flow_data(sector_map):
                 bb_status = "⚠️ Rawan Pucuk (Bollinger Atas)"
             else:
                 bb_status = "⚖️ Zona Normal"
-
-            # Zona Support Paus & Nilai Rupiah
-            paus_min = round(float(ma20.iloc[-1]) * 0.97, 0)
-            paus_max = round(float(ma20.iloc[-1]) * 1.005, 0)
-            paus_zone = f"Rp {paus_min:,.0f} – Rp {paus_max:,.0f} ({val_str})"
 
             # Alpha & Beta
             stock_returns = close.pct_change().dropna()
@@ -226,7 +226,7 @@ def fetch_sector_flow_data(sector_map):
             data_list.append({
                 "Kode Saham": ticker.replace(".JK", ""),
                 "Sektor": sector,
-                "Arus Uang": money_flow,
+                "Status OBV": obv_status,
                 "Harga": round(current_price, 2),
                 "Kelas Bandar": kelas_bandar,
                 "Kolom Paus (Akumulasi & Nilai)": paus_zone,
@@ -241,12 +241,12 @@ def fetch_sector_flow_data(sector_map):
     df_result = pd.DataFrame(data_list)
     if not df_result.empty:
         df_result['Is_Golden_Cross'] = df_result['Sinyal Teknikal'].str.contains("Golden Cross").astype(int)
-        df_result['Is_Inflow'] = df_result['Arus Uang'].str.contains("🟢 INFLOW").astype(int)
+        df_result['Is_Akumulasi'] = df_result['Status OBV'].str.contains("AKUMULASI").astype(int)
         
         df_result = df_result.sort_values(
-            by=["Is_Golden_Cross", "Is_Inflow", "Alpha (%)"], 
+            by=["Is_Golden_Cross", "Is_Akumulasi", "Alpha (%)"], 
             ascending=[False, False, False]
-        ).drop(columns=['Is_Golden_Cross', 'Is_Inflow']).reset_index(drop=True)
+        ).drop(columns=['Is_Golden_Cross', 'Is_Akumulasi']).reset_index(drop=True)
         
     return df_result
 
@@ -273,36 +273,14 @@ else:
 
     st.markdown("---")
 
-    # Radar Arus Uang Sektor
-    st.subheader("🌍 Radar Arus Uang Sektor IDX")
-    sector_flow_summary = []
-    for sector_name, group in df_screener.groupby("Sektor"):
-        inflow_count = len(group[group['Arus Uang'].str.contains("INFLOW")])
-        outflow_count = len(group[group['Arus Uang'].str.contains("OUTFLOW")])
-        status = "🟢 INFLOW" if inflow_count >= outflow_count else "🔴 OUTFLOW"
-            
-        sector_flow_summary.append({
-            "Sektor IDX": sector_name,
-            "Status Arus Uang": status,
-            "Jumlah Emiten": len(group)
-        })
-        
-    df_sector_flow = pd.DataFrame(sector_flow_summary)
-    flow_badges_str = "  |  ".join([f"**{row['Sektor IDX']}** {row['Status Arus Uang']}" for _, row in df_sector_flow.iterrows()])
-    st.markdown(f"### `{flow_badges_str}`")
-    st.dataframe(df_sector_flow, use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-
-    # Tabel Detail Saham dengan Pengaturan Kolom Terkunci (Pinned) untuk Kode Saham
-    st.subheader("📊 Daftar Emiten, Kelas Bandar & Nilai Akumulasi Paus")
+    # Tabel Detail Saham dengan Pembekuan Kolom (Pinned)
+    st.subheader("📊 Daftar Emiten & Analisis OBV Institusi")
     filter_sector = st.selectbox("Filter Berdasarkan Sektor IDX:", ["Semua Sektor"] + list(df_screener['Sektor'].unique()))
 
     df_filtered = df_screener.copy()
     if filter_sector != "Semua Sektor":
         df_filtered = df_filtered[df_filtered['Sektor'] == filter_sector]
 
-    # Menggunakan column_config untuk membekukan kolom Kode Saham agar tidak bergeser saat digulirkan ke samping
     st.dataframe(
         df_filtered, 
         use_container_width=True, 
@@ -324,6 +302,7 @@ else:
             "Kode Saham": row['Kode Saham'],
             "Sektor": row['Sektor'],
             "Harga Sekarang": row['Harga'],
+            "Status OBV": row['Status OBV'],
             "Kelas Bandar": row['Kelas Bandar'],
             "Kolom Paus (Akumulasi & Nilai)": row['Kolom Paus (Akumulasi & Nilai)'],
             "Sinyal": row['Sinyal Teknikal'],
@@ -343,7 +322,7 @@ else:
 
     st.markdown("---")
 
-    # Grafik Sebaran Risiko (Responsif)
+    # Grafik Sebaran Risiko
     st.subheader("📈 Scatter Plot Analisis Risiko & Imbal Hasil")
     df_screener['Marker_Size'] = 10
 
