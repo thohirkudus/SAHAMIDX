@@ -1,4 +1,156 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import yfinance as yf
+import plotly.express as px
 
+# ==========================================
+# 1. KONFIGURASI HALAMAN & CSS RESPONSIVE MOBILE
+# ==========================================
+st.set_page_config(
+    page_title="THOHIR IDX Institutional Screener",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+    /* Global Dark Theme Ala JOSAT */
+    .stApp {
+        background-color: #080C14;
+        font-family: 'Inter', sans-serif;
+        color: #E2EAF8;
+    }
+    
+    header {visibility: hidden;}
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 3rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    h1, h2, h3 {
+        font-family: 'Space Grotesk', sans-serif !important;
+        color: #E2EAF8 !important;
+    }
+    
+    /* Styling Kartu / Metrik yang Responsif di HP */
+    div[data-testid="stMetric"] {
+        background: linear-gradient(145deg, #0F1D38 0%, #0A1526 100%);
+        border: 1px solid #1E2D44;
+        padding: 12px 16px;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        margin-bottom: 10px;
+    }
+    div[data-testid="stMetric"] label {
+        color: #8A9BBF !important;
+        font-size: 10px !important;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        font-family: 'Space Grotesk', sans-serif !important;
+        color: #3D8EF8 !important;
+        font-size: 20px !important;
+    }
+
+    /* Tabel / DataFrame Agar Tidak Terpotong di Layar Kecil */
+    .stDataFrame {
+        border-radius: 14px;
+        border: 1px solid #1E2D44;
+        background-color: #0E1520;
+        overflow-x: auto;
+    }
+    
+    /* Tombol & Selectbox */
+    .stSelectbox div[data-baseweb="select"] {
+        background-color: #0E1520;
+        border-color: #1E2D44;
+        color: #E2EAF8;
+        border-radius: 12px;
+    }
+
+    /* Optimasi Tampilan Mobile (Media Query) */
+    @media (max-width: 768px) {
+        h1 { font-size: 1.5rem !important; }
+        h2 { font-size: 1.2rem !important; }
+        h3 { font-size: 1rem !important; }
+        .block-container {
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🏛️ THOHIR - Institutional IDX Screener")
+st.markdown("Dashboard analitik tingkat institusi dengan antarmuka responsif (*Mobile & Desktop*) untuk memantau **Arus Uang Sektor** dan **Sinyal Teknikal Beli**.")
+
+# ==========================================
+# 2. PEMETAAN SEKTOR & DATA PASAR
+# ==========================================
+SECTOR_MAPPING = {
+    "BBCA.JK": "IDXFINANCE", "BBRI.JK": "IDXFINANCE", "BMRI.JK": "IDXFINANCE", "BBNI.JK": "IDXFINANCE", "BRIS.JK": "IDXFINANCE",
+    "CTRA.JK": "IDXPROPERT", "BSDE.JK": "IDXPROPERT", "PWON.JK": "IDXPROPERT", "SMRA.JK": "IDXPROPERT",
+    "ICBP.JK": "IDXNONCYC", "INDF.JK": "IDXNONCYC", "AMRT.JK": "IDXNONCYC", "UNVR.JK": "IDXNONCYC", "JPFA.JK": "IDXNONCYC",
+    "KLBF.JK": "IDXHEALTH",
+    "ASII.JK": "IDXCYCLIC", "ACES.JK": "IDXCYCLIC", "ERAA.JK": "IDXCYCLIC", "MAPI.JK": "IDXCYCLIC", "SCMA.JK": "IDXCYCLIC",
+    "ANTM.JK": "IDXBASIC", "INCO.JK": "IDXBASIC", "NCKL.JK": "IDXBASIC", "MBMA.JK": "IDXBASIC", "AMMN.JK": "IDXBASIC", "ESSA.JK": "IDXBASIC",
+    "ASSA.JK": "IDXTRANS", "BIRD.JK": "IDXTRANS", "TMAS.JK": "IDXTRANS",
+    "PTBA.JK": "IDXINDUST",
+    "ARTO.JK": "IDXTECHNO", "EMTK.JK": "IDXTECHNO",
+    "ADRO.JK": "IDXENERGY", "ITMG.JK": "IDXENERGY", "MEDC.JK": "IDXENERGY", "PGAS.JK": "IDXENERGY", "BUMI.JK": "IDXENERGY", "DEWA.JK": "IDXENERGY", "INDY.JK": "IDXENERGY", "ADMR.JK": "IDXENERGY", "AADI.JK": "IDXENERGY",
+    "TLKM.JK": "IDXINFRA", "ISAT.JK": "IDXINFRA", "EXCL.JK": "IDXINFRA", "MTEL.JK": "IDXINFRA", "TBIG.JK": "IDXINFRA", "TOWR.JK": "IDXINFRA", "CMNP.JK": "IDXINFRA", "AKRA.JK": "IDXINFRA"
+}
+
+@st.cache_data(ttl=3600)
+def fetch_sector_flow_data(sector_map):
+    data_list = []
+    try:
+        benchmark = yf.download("^JKSE", period="1y", interval="1d", progress=False)['Close']
+        if isinstance(benchmark, pd.DataFrame):
+            benchmark = benchmark.iloc[:, 0]
+        bm_returns = benchmark.pct_change().dropna()
+    except Exception:
+        bm_returns = pd.Series()
+
+    for ticker, sector in sector_map.items():
+        try:
+            df = yf.download(ticker, period="1y", interval="1d", progress=False)
+            if df.empty or len(df) < 50:
+                continue
+                
+            if isinstance(df.columns, pd.MultiIndex):
+                close = df['Close'].iloc[:, 0]
+                high = df['High'].iloc[:, 0]
+                low = df['Low'].iloc[:, 0]
+                volume = df['Volume'].iloc[:, 0]
+            else:
+                close = df['Close']
+                high = df['High']
+                low = df['Low']
+                volume = df['Volume']
+                
+            current_price = float(close.iloc[-1])
+            prev_price = float(close.iloc[-2])
+            change_pct = ((current_price - prev_price) / prev_price) * 100
+            
+            curr_vol = float(volume.iloc[-1])
+            vol_ma20 = float(volume.rolling(20).mean().iloc[-1])
+
+            if change_pct > 0 and curr_vol > vol_ma20:
+                money_flow = "🟢 INFLOW"
+            elif change_pct < 0 and curr_vol > vol_ma20:
+                money_flow = "🔴 OUTFLOW"
+            elif change_pct > 0:
+                money_flow = "🟢 INFLOW (Low Vol)"
+            else:
+                money_flow = "🔴 OUTFLOW (Low Vol)"
 
             low_14 = low.rolling(window=14).min()
             high_14 = high.rolling(window=14).max()
